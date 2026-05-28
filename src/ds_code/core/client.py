@@ -791,3 +791,51 @@ def inspect_prompt_for_request(request: MessageRequest) -> PromptInspection:
 
 def build_cache_warmup_request(request: MessageRequest) -> MessageRequest:
     raise NotImplementedError
+
+
+# -----------------------------
+# Tests (pytest style)
+# -----------------------------
+
+def test_tool_name_round_trip_basic() -> None:
+    name = "my_tool"
+    encoded = to_api_tool_name(name)
+    assert encoded == name
+    assert from_api_tool_name(encoded) == name
+
+
+def test_tool_name_round_trip_with_special_chars() -> None:
+    name = "tool-name/with:chars"
+    encoded = to_api_tool_name(name)
+    assert encoded != name
+    assert from_api_tool_name(encoded) == name
+
+
+def test_decode_bare_hex_escapes_replaces_valid_codes() -> None:
+    text = "x00002d-abc"
+    assert decode_bare_hex_escapes(text) == "-abc"
+
+
+def test_decode_bare_hex_escapes_preserves_invalid_codes() -> None:
+    text = "xZZZZZZ-abc"
+    assert decode_bare_hex_escapes(text) == text
+
+
+def test_extract_retry_after_reads_header() -> None:
+    assert extract_retry_after({"Retry-After": "120"}) == 120
+    assert extract_retry_after({"retry-after": "10"}) == 10
+    assert extract_retry_after({"retry-after": "bad"}) is None
+
+
+def test_parse_models_response_dedupes_and_sorts() -> None:
+    payload = json.dumps(
+        {
+            "data": [
+                {"id": "zeta", "owned_by": "a", "created": 1},
+                {"id": "alpha", "owned_by": "b", "created": 2},
+                {"id": "alpha", "owned_by": "b", "created": 2},
+            ]
+        }
+    )
+    models = parse_models_response(payload)
+    assert [m.id for m in models] == ["alpha", "zeta"]
