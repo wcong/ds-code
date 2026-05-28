@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ds-code"
+version = "0.1.0"
+description = "Python skeleton for a DeepSeek-TUI port"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+	"fastapi>=0.112.0",
+	"uvicorn>=0.30.0"
+]
+
+[project.optional-dependencies]
+dev = [
+	"pytest>=7.4.0"
+]
+
+[project.scripts]
+ds-code = "ds_code.app:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
