@@ -621,8 +621,61 @@ class DeepSeekClient:
         return await self.handle_chat_completion_stream(request)
 
     async def create_message_chat(self, request: MessageRequest) -> MessageResponse:
-        # Placeholder for chat integration
-        raise NotImplementedError
+        url = api_url(self.base_url, "chat/completions")
+        messages = []
+        system_text = system_to_instructions(request.system)
+        if system_text:
+            messages.append({"role": "system", "content": system_text})
+        for msg in request.messages:
+            messages.append(
+                {
+                    "role": msg.role,
+                    "content": _serialize_message_content(msg),
+                }
+            )
+
+        body: Dict[str, Any] = {
+            "model": request.model or self.default_model,
+            "messages": messages,
+            "max_tokens": request.max_tokens,
+        }
+        if request.temperature is not None:
+            body["temperature"] = request.temperature
+        if request.top_p is not None:
+            body["top_p"] = request.top_p
+        if request.stream is not None:
+            body["stream"] = request.stream
+        if request.metadata is not None:
+            body["metadata"] = request.metadata
+        if request.tool_choice is not None:
+            body["tool_choice"] = request.tool_choice
+        if request.tools is not None:
+            body["tools"] = [_serialize_tool(tool) for tool in request.tools]
+        if request.thinking is not None:
+            body["thinking"] = request.thinking
+        apply_reasoning_effort(body, request.reasoning_effort, self.api_provider)
+
+        response = await self.send_with_retry(lambda: self.http_client.post(url, body, headers=self._headers()))
+        payload = await response.json()
+        try:
+            choice = (payload.get("choices") or [])[0]
+            message = choice.get("message") or {}
+        except Exception as err:
+            raise RuntimeError("create_message_chat: unexpected API response shape") from err
+
+        content_blocks = _parse_response_content_blocks(message.get("content"))
+        usage = parse_usage(payload.get("usage"))
+        return MessageResponse(
+            id=str(payload.get("id", "")),
+            type=str(payload.get("object", "message")),
+            role=str(message.get("role", "assistant")),
+            content=content_blocks,
+            model=str(payload.get("model", request.model or self.default_model)),
+            stop_reason=choice.get("finish_reason"),
+            stop_sequence=None,
+            container=None,
+            usage=usage,
+        )
 
     async def handle_chat_completion_stream(self, request: MessageRequest) -> Any:
         # Placeholder for chat streaming integration
@@ -689,6 +742,63 @@ def parse_models_response(payload: str) -> List[AvailableModel]:
         seen.add(model.id)
         deduped.append(model)
     return deduped
+
+
+def _serialize_message_content(message: Message) -> str:
+    parts: List[str] = []
+    for block in message.content:
+        if isinstance(block, TextBlock):
+            parts.append(block.text)
+        elif isinstance(block, ThinkingBlock):
+            parts.append(block.thinking)
+        elif isinstance(block, ToolUseBlock):
+            parts.append(f"[tool_use:{block.name}] {block.input}")
+        elif isinstance(block, ToolResultBlock):
+            parts.append(block.content)
+        else:
+            parts.append(str(block))
+    return "\n".join(part for part in parts if part)
+
+
+def _serialize_tool(tool: Any) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "type": tool.tool_type or "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.input_schema,
+    }
+    if tool.allowed_callers is not None:
+        payload["allowed_callers"] = tool.allowed_callers
+    if tool.defer_loading is not None:
+        payload["defer_loading"] = tool.defer_loading
+    if tool.input_examples is not None:
+        payload["input_examples"] = tool.input_examples
+    if tool.strict is not None:
+        payload["strict"] = tool.strict
+    if tool.cache_control is not None:
+        payload["cache_control"] = {"cache_type": tool.cache_control.cache_type}
+    return payload
+
+
+def _parse_response_content_blocks(content: Any) -> List[ContentBlock]:
+    if isinstance(content, str):
+        return [TextBlock(text=content)]
+    if isinstance(content, list):
+        blocks: List[ContentBlock] = []
+        for item in content:
+            if isinstance(item, str):
+                blocks.append(TextBlock(text=item))
+                continue
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    blocks.append(TextBlock(text=text))
+                    continue
+            blocks.append(TextBlock(text=str(item)))
+        return blocks
+    if content is None:
+        return []
+    return [TextBlock(text=str(content))]
 
 
 def system_to_instructions(system: Optional[SystemPrompt]) -> Optional[str]:

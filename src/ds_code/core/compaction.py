@@ -5,7 +5,8 @@ Context compaction for long conversations.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from models import SystemPrompt, CacheControl,SystemPromptText, SystemPromptBlocks, SystemBlock, ThinkingBlock , Usage, Message, MessageRequest, TextBlock, ToolResultBlock, ToolUseBlock
+from ds_code.core.models import SystemPrompt, CacheControl,SystemPromptText, SystemPromptBlocks, SystemBlock, ThinkingBlock , Usage, Message, MessageRequest, TextBlock, ToolResultBlock, ToolUseBlock
+from ds_code.core.client import DeepSeekClient
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Union
