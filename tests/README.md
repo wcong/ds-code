@@ -7,7 +7,7 @@ Install dev dependencies:
 pip install -e ".[dev]"
 ```
 
-Set required environment variables (recommended: use .env.test):
+Set required environment variables (recommended: use .env.test loaded by pytest-dotenv):
 
 Create `.env.test` in the repo root:
 

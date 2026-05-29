@@ -409,8 +409,8 @@ class HttpResponse(Protocol):
 
 
 class HttpClient(Protocol):
-    async def get(self, url: str) -> HttpResponse: ...
-    async def post(self, url: str, json_body: Any) -> HttpResponse: ...
+    async def get(self, url: str, headers: Optional[Dict[str, str]] = None) -> HttpResponse: ...
+    async def post(self, url: str, json_body: Any, headers: Optional[Dict[str, str]] = None) -> HttpResponse: ...
 
 
 def _default_headers(api_key: str, extra_headers: Dict[str, str]) -> Dict[str, str]:
@@ -443,6 +443,7 @@ class DeepSeekClient:
     api_provider: ApiProvider
     retry: RetryPolicy
     default_model: str
+    http_headers: Dict[str, str]
     connection_health: ConnectionHealth
     rate_limiter: TokenBucket
 
@@ -472,9 +473,13 @@ class DeepSeekClient:
             api_provider=api_provider,
             retry=retry,
             default_model=default_model,
+            http_headers=http_headers,
             connection_health=ConnectionHealth(),
             rate_limiter=TokenBucket.from_env(),
         )
+
+    def _headers(self) -> Dict[str, str]:
+        return _default_headers(self.api_key, self.http_headers)
 
     async def translate(self, text: str, model: str, target_language: str) -> str:
         url = api_url(self.base_url, "chat/completions")
@@ -504,7 +509,7 @@ class DeepSeekClient:
         }
         apply_reasoning_effort(body, "off", self.api_provider)
 
-        response = await self.send_with_retry(lambda: self.http_client.post(url, body))
+        response = await self.send_with_retry(lambda: self.http_client.post(url, body, headers=self._headers()))
         value = await response.json()
         try:
             translated = value["choices"][0]["message"]["content"]
@@ -514,7 +519,7 @@ class DeepSeekClient:
 
     async def list_models(self) -> List[AvailableModel]:
         url = api_url(self.base_url, "models")
-        response = await self.send_with_retry(lambda: self.http_client.get(url))
+        response = await self.send_with_retry(lambda: self.http_client.get(url, headers=self._headers()))
 
         if response.status_code < 200 or response.status_code >= 300:
             error_text = await bounded_error_text(response, ERROR_BODY_MAX_BYTES)
@@ -547,7 +552,7 @@ class DeepSeekClient:
             return
         health_url = api_url(self.base_url, "models")
         try:
-            resp = await self.http_client.get(health_url)
+            resp = await self.http_client.get(health_url, headers=self._headers())
             if 200 <= resp.status_code < 300:
                 await self.mark_request_success()
                 logger.info("Recovery probe succeeded")
@@ -599,7 +604,7 @@ class DeepSeekClient:
         health_url = api_url(self.base_url, "models")
         await self.wait_for_rate_limit()
         try:
-            resp = await self.http_client.get(health_url)
+            resp = await self.http_client.get(health_url, headers=self._headers())
             if 200 <= resp.status_code < 300:
                 await self.mark_request_success()
                 return True
@@ -631,7 +636,7 @@ class DeepSeekClient:
             "suffix": suffix,
             "max_tokens": max_tokens,
         }
-        response = await self.send_with_retry(lambda: self.http_client.post(url, body))
+        response = await self.send_with_retry(lambda: self.http_client.post(url, body, headers=self._headers()))
         if response.status_code < 200 or response.status_code >= 300:
             error_text = await bounded_error_text(response, ERROR_BODY_MAX_BYTES)
             raise RuntimeError(f"FIM API error: HTTP {response.status_code}: {error_text}")

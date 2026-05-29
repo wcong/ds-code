@@ -1,3 +1,4 @@
+import json
 import os
 
 import httpx
@@ -12,7 +13,7 @@ class EnvConfig:
         return os.getenv("DEEPSEEK_API_KEY", "")
 
     def deepseek_base_url(self) -> str:
-        return os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        return os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
     def api_provider(self) -> ApiProvider:
         return ApiProvider.Deepseek
@@ -31,14 +32,42 @@ class HttpxClient:
     def __init__(self) -> None:
         self._client = httpx.AsyncClient(timeout=30.0)
 
-    async def get(self, url: str):
-        return await self._client.get(url)
+    async def get(self, url: str, headers: dict | None = None):
+        response = await self._client.get(url, headers=headers)
+        return HttpxResponseAdapter(response)
 
-    async def post(self, url: str, json_body):
-        return await self._client.post(url, json=json_body)
+    async def post(self, url: str, json_body, headers: dict | None = None):
+        response = await self._client.post(url, json=json_body, headers=headers)
+        return HttpxResponseAdapter(response)
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+class HttpxResponseAdapter:
+    def __init__(self, response: httpx.Response) -> None:
+        self._response = response
+
+    @property
+    def status_code(self) -> int:
+        return self._response.status_code
+
+    @property
+    def headers(self) -> dict:
+        return dict(self._response.headers)
+
+    async def read(self, max_bytes: int | None = None) -> bytes:
+        data = await self._response.aread()
+        if max_bytes is not None:
+            return data[:max_bytes]
+        return data
+
+    async def text(self) -> str:
+        data = await self.read()
+        return data.decode("utf-8", errors="replace")
+
+    async def json(self):
+        return json.loads(await self.text())
 
 
 def _require_env() -> None:
